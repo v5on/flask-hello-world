@@ -1,4 +1,4 @@
-# main.py - Ultimate anti-block YouTube API
+# main.py - Consolidated version for Vercel
 import os
 import logging
 from flask import Flask, jsonify, request, send_file
@@ -8,9 +8,6 @@ import tempfile
 import re
 import time
 import threading
-import random
-import socket
-import socks
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,21 +18,6 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # Temporary file management
 temp_dir = tempfile.mkdtemp()
-
-# Enhanced user agents and headers
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36'
-]
-
-def get_random_user_agent():
-    return random.choice(USER_AGENTS)
-
-def get_random_ip():
-    return f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}"
 
 def cleanup_temp_file(file_path, delay=300):
     """Clean up temporary file after delay"""
@@ -59,144 +41,110 @@ def is_valid_youtube_url(url):
         r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})')
     return youtube_regex.match(url) is not None
 
-def get_ytdl_options():
-    """Get yt-dlp options with advanced anti-bot measures"""
-    headers = {
-        'User-Agent': get_random_user_agent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'X-Forwarded-For': get_random_ip()
-    }
-    
-    return {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': False,
-        'referer': 'https://www.youtube.com/',
-        'http_headers': headers,
-        'cookiefile': None,
-        # Proxy settings (uncomment if you have proxies available)
-        # 'proxy': 'socks5://your-proxy-ip:port',
-        'socket_timeout': 30,
-        'extractor_args': {
-            'youtube': {
-                'skip': ['hls', 'dash', 'translated_subs'],
-                'player_client': ['android', 'web'],
-                'player_skip': ['configs', 'webpage']
-            }
-        },
-        'compat_opts': {
-            'youtube-skip-dash-manifest': True,
-            'youtube-skip-hls-manifest': True
-        }
-    }
-
 @app.route('/api/video-info')
 def get_video_info():
-    """Get video information with advanced bot avoidance"""
+    """Get video information without cookies"""
     try:
         url = request.args.get('url')
         if not url or not is_valid_youtube_url(url.strip()):
             return jsonify({'error': 'Invalid YouTube URL', 'success': False}), 400
         
-        # Clean URL by removing tracking parameters
-        clean_url = url.split('?')[0]
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
         
-        ydl_opts = get_ytdl_options()
-        
-        # Enhanced retry mechanism
-        max_retries = 5
-        backoff_factor = 1.5
-        
-        for attempt in range(max_retries):
-            try:
-                # Rotate user agent and IP for each attempt
-                ydl_opts['http_headers']['User-Agent'] = get_random_user_agent()
-                ydl_opts['http_headers']['X-Forwarded-For'] = get_random_ip()
-                
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(clean_url, download=False)
-                    
-                    if not info:
-                        raise Exception("No video info returned")
-                    
-                    # Simplified but comprehensive response
-                    video_info = {
-                        'title': info.get('title'),
-                        'duration': info.get('duration'),
-                        'thumbnail': info.get('thumbnail'),
-                        'view_count': info.get('view_count'),
-                        'uploader': info.get('uploader'),
-                        'formats': []
-                    }
-                    
-                    # Process formats with better filtering
-                    for fmt in info.get('formats', []):
-                        if not fmt.get('url') or any(x in fmt.get('url', '') for x in ['manifest.googlevideo.com', 'm3u8']):
-                            continue
-                        
-                        format_info = {
-                            'format_id': fmt.get('format_id'),
-                            'ext': fmt.get('ext'),
-                            'quality': fmt.get('height'),
-                            'filesize': fmt.get('filesize'),
-                            'type': 'audio' if fmt.get('vcodec') == 'none' else 'video',
-                            'fps': fmt.get('fps'),
-                            'tbr': fmt.get('tbr')
-                        }
-                        
-                        # Only add if we have essential info
-                        if format_info['quality'] or format_info['type'] == 'audio':
-                            video_info['formats'].append(format_info)
-                    
-                    return jsonify({'success': True, 'data': video_info})
-                    
-            except yt_dlp.utils.DownloadError as e:
-                if "Sign in to confirm you're not a bot" in str(e):
-                    logger.warning(f"Bot detection triggered on attempt {attempt + 1}")
-                    if attempt == max_retries - 1:
-                        return jsonify({
-                            'error': 'YouTube is blocking requests. Please try again later or use a different network.',
-                            'success': False
-                        }), 429
-                else:
-                    raise
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
             
-            # Exponential backoff
-            sleep_time = backoff_factor ** (attempt + 1)
-            time.sleep(sleep_time)
+            # Simplified response structure
+            video_info = {
+                'title': info.get('title'),
+                'duration': info.get('duration'),
+                'thumbnail': info.get('thumbnail'),
+                'formats': []
+            }
+            
+            # Process formats
+            for fmt in info.get('formats', []):
+                if not fmt.get('url') or 'manifest.googlevideo.com' in fmt.get('url', ''):
+                    continue
                 
+                video_info['formats'].append({
+                    'format_id': fmt.get('format_id'),
+                    'ext': fmt.get('ext'),
+                    'quality': fmt.get('height'),
+                    'filesize': fmt.get('filesize'),
+                    'vcodec': fmt.get('vcodec'),
+                    'acodec': fmt.get('acodec')
+                })
+            
+            return jsonify({'success': True, 'data': video_info})
+            
     except Exception as e:
-        logger.error(f"Final error getting video info: {e}")
-        return jsonify({
-            'error': 'YouTube is currently blocking requests. This is not a problem with your app but with YouTube\'s bot detection.',
-            'success': False,
-            'tip': 'Try again in a few hours or consider using proxies if this persists'
-        }), 500
+        logger.error(f"Error getting video info: {e}")
+        return jsonify({'error': str(e), 'success': False}), 500
+
+@app.route('/api/download')
+def download_video():
+    """Download endpoint without cookie dependencies"""
+    try:
+        url = request.args.get('url')
+        if not url or not is_valid_youtube_url(url.strip()):
+            return jsonify({'error': 'Invalid YouTube URL', 'success': False}), 400
+        
+        format_id = request.args.get('format_id')
+        audio_only = request.args.get('audio_only', 'false').lower() == 'true'
+        
+        # Configure download options
+        ydl_opts = {
+            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        if audio_only:
+            ydl_opts['format'] = 'bestaudio/best'
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+            }]
+        elif format_id:
+            ydl_opts['format'] = format_id
+        else:
+            ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]'
+        
+        # Perform download
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            
+            if audio_only:
+                filename = filename.rsplit('.', 1)[0] + '.mp3'
+            
+            if not os.path.exists(filename):
+                raise Exception("Downloaded file not found")
+            
+            cleanup_temp_file(filename)
+            return send_file(
+                filename,
+                as_attachment=True,
+                download_name=os.path.basename(filename),
+                mimetype='audio/mpeg' if audio_only else 'video/mp4'
+            )
+            
+    except Exception as e:
+        logger.error(f"Error downloading video: {e}")
+        return jsonify({'error': str(e), 'success': False}), 500
 
 @app.route('/')
 def home():
+    """Simple home page"""
     return jsonify({
-        'service': 'YouTube API',
-        'status': 'running',
+        'service': 'YouTube Video Info API',
+        'version': '1.0',
         'endpoints': {
             '/api/video-info': 'Get video information',
             '/api/download': 'Download video/audio'
-        },
-        'warning': 'YouTube may block requests if used excessively'
+        }
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
