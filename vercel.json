@@ -5,18 +5,15 @@
       "src": "wsgi.py",
       "use": "@vercel/python",
       "config": {
-        "maxLambdaSize": "15mb",
-        "runtime": "python3.9"
+        "maxLambdaSize": "25mb",
+        "runtime": "python3.9",
+        "includeFiles": ["api/**", "requirements.txt"]
       }
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "wsgi.py"
-    },
-    {
-      "src": "/(.*)",
       "dest": "wsgi.py"
     }
   ]
